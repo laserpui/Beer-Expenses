@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>บัญชีเงินเบียร์ - ระบบบันทึกบัญชีฝาก–ถอนเงิน</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;500;600;700&family=Sarabun:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <!-- App Container -->
+  <div class="app-container">
+    
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span class="logo-icon">💰</span>
+        <h1 class="logo-text">บัญชีเงินเบียร์</h1>
+      </div>
+      
+      <nav class="sidebar-menu">
+        <button class="menu-item active" id="btn-dashboard">
+          <i data-lucide="layout-dashboard"></i>
+          <span>แดชบอร์ดสรุป</span>
+        </button>
+        <button class="menu-item" id="btn-add-transaction-nav">
+          <i data-lucide="plus-circle"></i>
+          <span>บันทึกรายการ</span>
+        </button>
+
+      </nav>
+      
+      <div class="sidebar-footer">
+        <div class="connection-status offline" id="connection-status-badge">
+          <span class="status-dot"></span>
+          <span class="status-text" id="connection-status-text">ไม่ได้เชื่อมต่อ</span>
+        </div>
+      </div>
+    </aside>
+    
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- Top Header Bar -->
+      <header class="top-header">
+        <div class="header-title-area">
+          <button class="mobile-toggle-btn" id="mobile-toggle-btn">
+            <i data-lucide="menu"></i>
+          </button>
+          <h2 id="view-title">สรุปภาพรวมบัญชี</h2>
+        </div>
+        <div class="header-meta">
+          <div class="date-display">
+            <i data-lucide="calendar"></i>
+            <span id="current-date-str">กำลังโหลด...</span>
+          </div>
+        </div>
+      </header>
+      
+      <!-- View 1: Dashboard View -->
+      <div class="view-pane active" id="dashboard-view">
+        <!-- KPI Cards Grid -->
+        <section class="kpi-grid">
+          <!-- Card 1: Balance -->
+          <div class="kpi-card balance-card">
+            <div class="kpi-icon-wrap">
+              <span class="emoji-icon">💰</span>
+            </div>
+            <div class="kpi-info">
+              <h3 class="kpi-label">ยอดเงินคงเหลือปัจจุบัน</h3>
+              <p class="kpi-value" id="kpi-balance">0.00</p>
+              <p class="kpi-subtext">เริ่มต้น 44,540.83 บาท</p>
+            </div>
+          </div>
+          
+          <!-- Card 2: Total Deposits -->
+          <div class="kpi-card deposit-card">
+            <div class="kpi-icon-wrap">
+              <span class="emoji-icon">➕</span>
+            </div>
+            <div class="kpi-info">
+              <h3 class="kpi-label">ยอดฝากสะสม</h3>
+              <p class="kpi-value text-deposit" id="kpi-deposits">0.00</p>
+              <p class="kpi-subtext" id="kpi-deposits-count">0 รายการ</p>
+            </div>
+          </div>
+          
+          <!-- Card 3: Total Withdrawals -->
+          <div class="kpi-card withdrawal-card">
+            <div class="kpi-icon-wrap">
+              <span class="emoji-icon">➖</span>
+            </div>
+            <div class="kpi-info">
+              <h3 class="kpi-label">ยอดถอนสะสม</h3>
+              <p class="kpi-value text-withdrawal" id="kpi-withdrawals">0.00</p>
+              <p class="kpi-subtext" id="kpi-withdrawals-count">0 รายการ</p>
+            </div>
+          </div>
+          
+          <!-- Card 4: Total Transactions -->
+          <div class="kpi-card tx-count-card">
+            <div class="kpi-icon-wrap">
+              <span class="emoji-icon">📊</span>
+            </div>
+            <div class="kpi-info">
+              <h3 class="kpi-label">จำนวนรายการทั้งหมด</h3>
+              <p class="kpi-value" id="kpi-tx-count">0</p>
+              <p class="kpi-subtext">รายการที่ถูกบันทึกทั้งหมด</p>
+            </div>
+          </div>
+        </section>
+        
+        <!-- Charts Grid -->
+        <section class="charts-grid">
+          <!-- Chart 1: Deposit vs Withdrawal -->
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3 class="chart-title">📊 ยอดฝาก–ถอนรายเดือน</h3>
+            </div>
+            <div class="chart-body">
+              <canvas id="monthlyChart"></canvas>
+            </div>
+          </div>
+          
+          <!-- Chart 2: Cumulative Balance Trend -->
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3 class="chart-title">💰 กราฟยอดเงินคงเหลือสะสม</h3>
+            </div>
+            <div class="chart-body">
+              <canvas id="balanceChart"></canvas>
+            </div>
+          </div>
+        </section>
+        
+        <!-- Transactions Table Section -->
+        <section class="table-section">
+          <div class="table-header-row">
+            <div class="table-title-area">
+              <h3>📝 รายการเคลื่อนไหวล่าสุด</h3>
+              <span class="badge" id="table-count">0 รายการ</span>
+            </div>
+            <div class="table-actions">
+              <div class="search-box">
+                <i data-lucide="search"></i>
+                <input type="text" id="search-input" placeholder="ค้นหาตามรายละเอียด...">
+              </div>
+              <select id="filter-type">
+                <option value="all">ทั้งหมด</option>
+                <option value="deposit">ฝาก</option>
+                <option value="withdrawal">ถอน</option>
+              </select>
+              <button class="btn btn-primary btn-sm" id="btn-add-transaction-table">
+                <i data-lucide="plus"></i>
+                <span>บันทึกรายการใหม่</span>
+              </button>
+            </div>
+          </div>
+          
+          <div class="table-container">
+            <table class="data-table" id="transactions-table">
+              <thead>
+                <tr>
+                  <th><i data-lucide="calendar" class="table-th-icon"></i> วันที่ทำรายการ</th>
+                  <th><i data-lucide="refresh-cw" class="table-th-icon"></i> ประเภท</th>
+                  <th><i data-lucide="dollar-sign" class="table-th-icon"></i> จำนวนเงิน (บาท)</th>
+                  <th><i data-lucide="file-text" class="table-th-icon"></i> รายละเอียด</th>
+                  <th class="text-center"><i data-lucide="sliders" class="table-th-icon"></i> จัดการ</th>
+                </tr>
+              </thead>
+              <tbody id="transactions-tbody">
+                <!-- Loaded dynamically -->
+                <tr>
+                  <td colspan="5" class="text-center py-8 text-muted">
+                    <div class="loading-spinner-wrap">
+                      <div class="spinner"></div>
+                      <p class="mt-2">กำลังดึงข้อมูลจาก Google Sheet...</p>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+      
+
+      
+    </main>
+  </div>
+  
+  <!-- Modal Dialog: Add/Edit Transaction -->
+  <div class="modal-overlay" id="transaction-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-title"><span class="modal-header-icon">➕</span> บันทึกธุรกรรมใหม่</h3>
+        <button class="close-btn" id="btn-close-modal">&times;</button>
+      </div>
+      
+      <form id="transaction-form">
+        <!-- Hidden input for edit mode identifying unique timestamp -->
+        <input type="hidden" id="tx-timestamp">
+        
+        <div class="form-row">
+          <div class="form-group half-width">
+            <label for="tx-date">📅 วันที่ทำรายการ</label>
+            <input type="date" id="tx-date" required>
+          </div>
+          
+          <div class="form-group half-width">
+            <label for="tx-type">🔄 ประเภทการทำรายการ</label>
+            <select id="tx-type" required>
+              <option value="" disabled selected>-- เลือกประเภท --</option>
+              <option value="ฝาก">ฝากเงิน (➕)</option>
+              <option value="ถอน">ถอนเงิน (➖)</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label for="tx-amount">💵 จำนวนเงิน (บาท)</label>
+          <input type="number" id="tx-amount" min="0.01" step="0.01" placeholder="0.00" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="tx-details-select">📝 รายละเอียด</label>
+          <select id="tx-details-select" required>
+            <option value="" disabled selected>-- เลือกรายละเอียด --</option>
+            <option value="เงินประจำเดือนของแม่">เงินประจำเดือนของแม่</option>
+            <option value="อื่นๆ">อื่นๆ</option>
+          </select>
+        </div>
+        
+        <!-- Conditional Detail Field -->
+        <div class="form-group hidden" id="custom-details-group">
+          <label for="tx-details-custom">✍️ รายละเอียดเพิ่มเติม (สำหรับ "อื่นๆ")</label>
+          <input type="text" id="tx-details-custom" placeholder="กรอกรายละเอียดเฉพาะ...">
+        </div>
+        
+        <div class="form-group">
+          <label for="tx-password">🔑 รหัสเข้าใช้งาน</label>
+          <input type="password" id="tx-password" placeholder="กรอกรหัสผ่านเพื่อยืนยันรายการ" required>
+        </div>
+        
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-modal">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-modal">
+            <span id="submit-btn-text">บันทึกรายการ</span>
+            <span class="btn-spinner hidden" id="submit-spinner"></span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+  
+  <!-- Floating Toast Notifications -->
+  <div class="toast-container" id="toast-container"></div>
+  
+  <!-- Core Client-side Logic Script -->
+  <script src="app.js"></script>
+</body>
+</html>
