@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="th">
 <head>
   <meta charset="UTF-8">
@@ -38,6 +38,10 @@
         <button class="menu-item" id="btn-add-transaction-nav">
           <i data-lucide="plus-circle"></i>
           <span>บันทึกรายการ</span>
+        </button>
+        <button class="menu-item" id="btn-open-sheet">
+          <i data-lucide="sheet"></i>
+          <span>เปิด Google Sheet</span>
         </button>
 
       </nav>
@@ -81,7 +85,6 @@
             <div class="kpi-info">
               <h3 class="kpi-label">ยอดเงินคงเหลือปัจจุบัน</h3>
               <p class="kpi-value" id="kpi-balance">0.00</p>
-              <p class="kpi-subtext">เริ่มต้น 44,540.83 บาท</p>
             </div>
           </div>
           
@@ -177,13 +180,14 @@
                   <th><i data-lucide="refresh-cw" class="table-th-icon"></i> ประเภท</th>
                   <th><i data-lucide="dollar-sign" class="table-th-icon"></i> จำนวนเงิน (บาท)</th>
                   <th><i data-lucide="file-text" class="table-th-icon"></i> รายละเอียด</th>
+                  <th class="text-center"><i data-lucide="image" class="table-th-icon"></i> รูป</th>
                   <th class="text-center"><i data-lucide="sliders" class="table-th-icon"></i> จัดการ</th>
                 </tr>
               </thead>
               <tbody id="transactions-tbody">
                 <!-- Loaded dynamically -->
                 <tr>
-                  <td colspan="5" class="text-center py-8 text-muted">
+                  <td colspan="6" class="text-center py-8 text-muted">
                     <div class="loading-spinner-wrap">
                       <div class="spinner"></div>
                       <p class="mt-2">กำลังดึงข้อมูลจาก Google Sheet...</p>
@@ -250,6 +254,12 @@
         </div>
         
         <div class="form-group">
+          <label for="tx-attachment">🖼️ แนบรูปภาพ</label>
+          <input type="file" id="tx-attachment" accept="image/*">
+          <small class="help-block">ไฟล์จะถูกบันทึกลงโฟลเดอร์ ภาพ และแนบไปกับอีเมลแจ้งเตือน</small>
+        </div>
+        
+        <div class="form-group">
           <label for="tx-password">🔑 รหัสเข้าใช้งาน</label>
           <input type="password" id="tx-password" placeholder="กรอกรหัสผ่านเพื่อยืนยันรายการ" required>
         </div>
@@ -265,7 +275,32 @@
     </div>
   </div>
   
-  <!-- Floating Toast Notifications -->
+  <!-- Modal Dialog: Admin Password -->
+  <div class="modal-overlay" id="admin-password-modal">
+    <div class="modal-card admin-modal-card">
+      <div class="admin-modal-icon">
+        <i data-lucide="shield-check"></i>
+      </div>
+      <div class="modal-header admin-modal-header">
+        <h3 id="admin-modal-title">ยืนยันรหัส Admin</h3>
+        <button class="close-btn" id="btn-close-admin-modal">&times;</button>
+      </div>
+      <p class="admin-modal-subtitle" id="admin-modal-message">กรอกรหัสเพื่อดำเนินการต่อ</p>
+      <div class="form-group">
+        <label for="admin-password-input">รหัส Admin</label>
+        <input type="password" id="admin-password-input" placeholder="กรอกรหัส Admin" autocomplete="current-password">
+        <small class="help-block hidden" id="admin-password-error">รหัสไม่ถูกต้อง กรุณาลองอีกครั้ง</small>
+      </div>
+      <div class="modal-footer admin-modal-footer">
+        <button type="button" class="btn btn-secondary" id="btn-cancel-admin-modal">ยกเลิก</button>
+        <button type="button" class="btn btn-primary" id="btn-confirm-admin-modal">
+          <i data-lucide="unlock-keyhole"></i>
+          <span>ยืนยัน</span>
+        </button>
+      </div>
+    </div>
+  </div>
+    <!-- Floating Toast Notifications -->
   <div class="toast-container" id="toast-container"></div>
   
   <!-- Core Client-side Logic Script -->

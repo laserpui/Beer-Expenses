@@ -1,4 +1,4 @@
-/* ==========================================================================
+﻿/* ==========================================================================
    CSS Design System for บัญชีเงินเบียร์ (Glassmorphism & SaaS Aesthetics)
    ========================================================================== */
 
@@ -642,6 +642,29 @@ html, body {
   border: 1px solid rgba(239, 83, 80, 0.3);
 }
 
+.image-link {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  transition: all var(--transition-fast);
+}
+
+.image-link:hover {
+  color: var(--text-light);
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.image-link i {
+  width: 15px;
+  height: 15px;
+}
 /* Action Buttons inside Table */
 .action-buttons-wrap {
   display: flex;
@@ -952,6 +975,72 @@ html, body {
   to { transform: rotate(360deg); }
 }
 
+/* --- Admin Password Modal --- */
+.admin-modal-card {
+  max-width: 420px;
+  text-align: center;
+}
+
+.admin-modal-icon {
+  width: 58px;
+  height: 58px;
+  margin: 0 auto 1rem auto;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-light);
+  background: linear-gradient(135deg, var(--primary), var(--success));
+  box-shadow: 0 14px 28px rgba(92, 107, 192, 0.25);
+}
+
+.admin-modal-icon i {
+  width: 28px;
+  height: 28px;
+}
+
+.admin-modal-header {
+  justify-content: center;
+  position: relative;
+  margin-bottom: 0.5rem;
+}
+
+.admin-modal-header .close-btn {
+  position: absolute;
+  right: 0;
+  top: -0.25rem;
+}
+
+.admin-modal-subtitle {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin-bottom: 1.25rem;
+}
+
+.admin-modal-card .form-group {
+  text-align: left;
+}
+
+.admin-modal-card input {
+  text-align: center;
+  font-size: 1.05rem;
+  letter-spacing: 0.08em;
+}
+
+.admin-modal-card #admin-password-error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.admin-modal-footer {
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.admin-modal-footer .btn {
+  min-width: 120px;
+}
 /* --- Toast Notification (Glass style) --- */
 .toast-container {
   position: fixed;

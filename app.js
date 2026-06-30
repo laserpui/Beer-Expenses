@@ -1,11 +1,12 @@
-/**
+﻿/**
  * Client-side Logic for "บัญชีเงินเบียร์"
  */
 
 // Application State
-const webAppUrl = "https://script.google.com/macros/s/AKfycbxk4A9UO63MMsWeuwEgbg8kY-Qx6_puMtwkXw71QgDoWqs_k-_jjxWi6i_J0QMg1UtW9Q/exec";
+const webAppUrl = "https://script.google.com/macros/s/AKfycbw0Ns5NLTiLGu1BY6700VqzUAvYneIJTOZ5GMRSAz3teIgNCm3CRl9P5XfbFF3FsI013g/exec";
 let allTransactions = [];
 let filteredTransactions = [];
+let googleSheetUrl = "";
 const STARTING_BALANCE = 44540.83;
 
 // Chart Instances
@@ -25,6 +26,7 @@ const connectionStatusText = document.getElementById("connection-status-text");
 // Sidebar Nav Buttons
 const btnDashboard = document.getElementById("btn-dashboard");
 const btnAddTransactionNav = document.getElementById("btn-add-transaction-nav");
+const btnOpenSheet = document.getElementById("btn-open-sheet");
 const mobileToggleBtn = document.getElementById("mobile-toggle-btn");
 const sidebar = document.querySelector(".sidebar");
 
@@ -56,6 +58,7 @@ const txAmountInput = document.getElementById("tx-amount");
 const txDetailsSelect = document.getElementById("tx-details-select");
 const customDetailsGroup = document.getElementById("custom-details-group");
 const txDetailsCustom = document.getElementById("tx-details-custom");
+const txAttachmentInput = document.getElementById("tx-attachment");
 
 const btnSubmitModal = document.getElementById("btn-submit-modal");
 const submitBtnText = document.getElementById("submit-btn-text");
@@ -63,6 +66,17 @@ const submitSpinner = document.getElementById("submit-spinner");
 
 // Toast Notification Container
 const toastContainer = document.getElementById("toast-container");
+
+// Admin Password Modal Elements
+const adminPasswordModal = document.getElementById("admin-password-modal");
+const adminModalTitle = document.getElementById("admin-modal-title");
+const adminModalMessage = document.getElementById("admin-modal-message");
+const adminPasswordInput = document.getElementById("admin-password-input");
+const adminPasswordError = document.getElementById("admin-password-error");
+const btnCloseAdminModal = document.getElementById("btn-close-admin-modal");
+const btnCancelAdminModal = document.getElementById("btn-cancel-admin-modal");
+const btnConfirmAdminModal = document.getElementById("btn-confirm-admin-modal");
+let adminPasswordResolver = null;
 
 /* ==========================================================================
    Initialization & Event Listeners
@@ -81,6 +95,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Navigation events
   btnDashboard.addEventListener("click", () => switchView("dashboard"));
   btnAddTransactionNav.addEventListener("click", () => openTransactionModal());
+  if (btnOpenSheet) btnOpenSheet.addEventListener("click", handleOpenSheetClick);
   btnAddTransactionTable.addEventListener("click", () => openTransactionModal());
   
   // Mobile toggle sidebar
@@ -98,6 +113,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Modal Cancel events
   btnCloseModal.addEventListener("click", closeTransactionModal);
   btnCancelModal.addEventListener("click", closeTransactionModal);
+  setupAdminPasswordModal();
   
   // Modal conditional fields
   txDetailsSelect.addEventListener("change", handleDetailsSelectChange);
@@ -181,6 +197,7 @@ async function fetchData() {
     
     if (resData.status === "success") {
       allTransactions = resData.data || [];
+      googleSheetUrl = resData.spreadsheetUrl || googleSheetUrl;
       
       // Update badge
       updateConnectionStatus(true);
@@ -313,6 +330,7 @@ function renderTable(txList) {
         </td>
         <td class="${amountClass} text-right">${formatCurrency(t.amount)}</td>
         <td>${t.details}</td>
+        <td class="text-center">${renderImageLink(t)}</td>
         <td>
           <div class="action-buttons-wrap">
             <button class="action-btn edit-btn" data-timestamp="${t.timestamp}" title="แก้ไขรายการ">
@@ -339,7 +357,7 @@ function renderTable(txList) {
 function showTableLoadingSpinner() {
   transactionsTbody.innerHTML = `
     <tr>
-      <td colspan="5" class="text-center py-8 text-muted">
+      <td colspan="6" class="text-center py-8 text-muted">
         <div class="loading-spinner-wrap">
           <div class="spinner"></div>
           <p class="mt-2">กำลังโหลดรายการธุรกรรมจาก Google Sheet...</p>
@@ -355,7 +373,7 @@ function showTableLoadingSpinner() {
 function showEmptyTableMessage(msg) {
   transactionsTbody.innerHTML = `
     <tr>
-      <td colspan="5" class="text-center py-8 text-muted">
+      <td colspan="6" class="text-center py-8 text-muted">
         <div class="empty-state">
           <span style="font-size: 2.5rem;">⚠️</span>
           <p class="mt-2 font-bold">${msg}</p>
@@ -582,6 +600,7 @@ function openTransactionModal() {
   
   // Clear password field
   document.getElementById("tx-password").value = "";
+  if (txAttachmentInput) txAttachmentInput.value = "";
   
   // Set default current date (local timezone YYYY-MM-DD format for date inputs)
   const tzOffset = 7 * 60; // ICT
@@ -610,6 +629,7 @@ function openEditTransactionModal(timestamp) {
   
   // Clear password field
   document.getElementById("tx-password").value = "";
+  if (txAttachmentInput) txAttachmentInput.value = "";
   
   // Populate form
   txDateInput.value = transaction.date;
@@ -723,6 +743,8 @@ async function handleTransactionSubmit(e) {
   }
   
   try {
+    const attachment = await getAttachmentPayload();
+    if (attachment) payload.attachment = attachment;
     const response = await fetch(webAppUrl, {
       method: "POST",
       headers: {
@@ -775,12 +797,11 @@ async function handleTableActions(e) {
     if (!matchedTx) return;
     
     // Verify passcode
-    const pin = prompt("กรุณากรอกรหัสเข้าใช้งาน (Access Code) เพื่อลบรายการ:");
-    if (pin === null) return; // User clicked Cancel
-    if (pin !== "Admin1234") {
-      showToast("รหัสเข้าใช้งานไม่ถูกต้อง ไม่สามารถลบรายการได้", "error");
-      return;
-    }
+    const isAuthorized = await requestAdminPassword({
+      title: "ยืนยันการลบรายการ",
+      message: "กรอกรหัส Admin เพื่อลบรายการนี้"
+    });
+    if (!isAuthorized) return;
     
     const displayDate = formatThaiDate(matchedTx.date);
     const confirmMessage = `คุณแน่ใจหรือไม่ว่าต้องการลบรายการนี้?\n\n` +
@@ -844,16 +865,160 @@ function setFormLoading(isLoading) {
     btnSubmitModal.setAttribute("disabled", "disabled");
     btnCancelModal.setAttribute("disabled", "disabled");
     btnCloseModal.setAttribute("disabled", "disabled");
+    if (txAttachmentInput) txAttachmentInput.setAttribute("disabled", "disabled");
   } else {
     submitSpinner.classList.add("hidden");
     btnSubmitModal.removeAttribute("disabled");
     btnCancelModal.removeAttribute("disabled");
     btnCloseModal.removeAttribute("disabled");
+    if (txAttachmentInput) txAttachmentInput.removeAttribute("disabled");
   }
 }
 
 
 
+function setupAdminPasswordModal() {
+  if (!adminPasswordModal) return;
+  btnCloseAdminModal.addEventListener("click", () => resolveAdminPassword(false));
+  btnCancelAdminModal.addEventListener("click", () => resolveAdminPassword(false));
+  btnConfirmAdminModal.addEventListener("click", submitAdminPassword);
+  adminPasswordInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submitAdminPassword();
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      resolveAdminPassword(false);
+    }
+  });
+  adminPasswordModal.addEventListener("click", (event) => {
+    if (event.target === adminPasswordModal) resolveAdminPassword(false);
+  });
+}
+
+function requestAdminPassword({ title, message }) {
+  if (!adminPasswordModal) {
+    showToast("ไม่พบหน้าต่างยืนยันรหัส Admin", "error");
+    return Promise.resolve(false);
+  }
+  if (adminPasswordResolver) resolveAdminPassword(false);
+  adminModalTitle.textContent = title || "ยืนยันรหัส Admin";
+  adminModalMessage.textContent = message || "กรอกรหัสเพื่อดำเนินการต่อ";
+  adminPasswordInput.value = "";
+  adminPasswordError.classList.add("hidden");
+  adminPasswordModal.classList.add("active");
+  setTimeout(() => adminPasswordInput.focus(), 80);
+  lucide.createIcons();
+
+  return new Promise((resolve) => {
+    adminPasswordResolver = resolve;
+  });
+}
+
+function submitAdminPassword() {
+  if (adminPasswordInput.value === "Admin1234") {
+    resolveAdminPassword(true);
+    return;
+  }
+  adminPasswordError.classList.remove("hidden");
+  adminPasswordInput.select();
+}
+
+function resolveAdminPassword(result) {
+  if (!adminPasswordResolver) return;
+  const resolver = adminPasswordResolver;
+  adminPasswordResolver = null;
+  adminPasswordModal.classList.remove("active");
+  resolver(result);
+}
+function renderImageLink(transaction) {
+  if (!transaction.imageUrl) return "-";
+  const title = transaction.imageName || "เปิดรูปภาพ";
+  return `
+    <a class="image-link" href="${escapeAttribute(transaction.imageUrl)}" target="_blank" rel="noopener" title="${escapeAttribute(title)}">
+      <i data-lucide="image"></i>
+    </a>
+  `;
+}
+
+async function handleOpenSheetClick() {
+  const isAuthorized = await requestAdminPassword({
+    title: "เปิด Google Sheet",
+    message: "กรอกรหัส Admin เพื่อเปิดไฟล์ Google Sheet"
+  });
+  if (!isAuthorized) return;
+
+  const sheetWindow = window.open("about:blank", "_blank");
+  try {
+    const sheetUrl = await resolveGoogleSheetUrl();
+    if (!sheetUrl) {
+      if (sheetWindow) sheetWindow.close();
+      showToast("ยังไม่พบลิงก์ Google Sheet กรุณาตรวจสอบว่า Apps Script อัปเดตเป็นเวอร์ชันล่าสุดแล้ว", "warning");
+      return;
+    }
+    if (sheetWindow) {
+      sheetWindow.location.href = sheetUrl;
+    } else {
+      window.open(sheetUrl, "_blank", "noopener");
+    }
+  } catch (error) {
+    if (sheetWindow) sheetWindow.close();
+    console.error("Open Sheet Error:", error);
+    showToast(`เปิด Google Sheet ไม่สำเร็จ: ${error.message}`, "error");
+  }
+}
+
+async function resolveGoogleSheetUrl() {
+  if (googleSheetUrl) return googleSheetUrl;
+  const separator = webAppUrl.includes("?") ? "&" : "?";
+  const response = await fetch(`${webAppUrl}${separator}action=sheetUrl&t=${Date.now()}`, {
+    method: "GET",
+    redirect: "follow"
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  const data = await response.json();
+  if (data.status === "success" && data.spreadsheetUrl) {
+    googleSheetUrl = data.spreadsheetUrl;
+    return googleSheetUrl;
+  }
+  return "";
+}
+
+async function getAttachmentPayload() {
+  if (!txAttachmentInput || !txAttachmentInput.files || txAttachmentInput.files.length === 0) {
+    return null;
+  }
+  const file = txAttachmentInput.files[0];
+  if (!file.type || !file.type.startsWith("image/")) {
+    throw new Error("กรุณาแนบไฟล์รูปภาพเท่านั้น");
+  }
+  const dataUrl = await readFileAsDataUrl(file);
+  return {
+    name: file.name,
+    mimeType: file.type,
+    data: dataUrl.split(",")[1]
+  };
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("อ่านไฟล์รูปภาพไม่สำเร็จ"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function escapeAttribute(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
 /* ==========================================================================
    Helper Utilities
    ========================================================================== */
