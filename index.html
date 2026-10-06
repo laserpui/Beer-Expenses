@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>บัญชีเงินเบียร์ - ระบบบันทึกบัญชีฝาก–ถอนเงิน</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💰</text></svg>">
   
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -14,24 +15,24 @@
   <link rel="stylesheet" href="style.css">
   
   <!-- Chart.js CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
   
   <!-- Lucide Icons CDN -->
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
 </head>
 <body>
   <!-- App Container -->
   <div class="app-container">
     
     <!-- Sidebar Navigation -->
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar-navigation">
       <div class="sidebar-header">
         <span class="logo-icon">💰</span>
         <h1 class="logo-text">บัญชีเงินเบียร์</h1>
       </div>
       
       <nav class="sidebar-menu">
-        <button class="menu-item active" id="btn-dashboard">
+        <button class="menu-item active" id="btn-dashboard" aria-current="page">
           <i data-lucide="layout-dashboard"></i>
           <span>แดชบอร์ดสรุป</span>
         </button>
@@ -60,7 +61,7 @@
       <!-- Top Header Bar -->
       <header class="top-header">
         <div class="header-title-area">
-          <button class="mobile-toggle-btn" id="mobile-toggle-btn">
+          <button class="mobile-toggle-btn" id="mobile-toggle-btn" aria-label="เปิดเมนูหลัก" aria-expanded="false" aria-controls="sidebar-navigation">
             <i data-lucide="menu"></i>
           </button>
           <h2 id="view-title">สรุปภาพรวมบัญชี</h2>
@@ -153,7 +154,7 @@
           <div class="table-header-row">
             <div class="table-title-area">
               <h3>📝 รายการเคลื่อนไหวล่าสุด</h3>
-              <span class="badge" id="table-count">0 รายการ</span>
+              <span class="badge" id="table-count" aria-live="polite">0 รายการ</span>
             </div>
             <div class="table-actions">
               <div class="search-box">
@@ -197,6 +198,11 @@
               </tbody>
             </table>
           </div>
+          <div class="table-pagination" id="table-pagination" hidden>
+            <button class="btn btn-secondary btn-sm" id="btn-page-prev" type="button">ก่อนหน้า</button>
+            <span id="page-status" aria-live="polite">หน้า 1 จาก 1</span>
+            <button class="btn btn-secondary btn-sm" id="btn-page-next" type="button">ถัดไป</button>
+          </div>
         </section>
       </div>
       
@@ -206,11 +212,11 @@
   </div>
   
   <!-- Modal Dialog: Add/Edit Transaction -->
-  <div class="modal-overlay" id="transaction-modal">
-    <div class="modal-card">
+  <div class="modal-overlay" id="transaction-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-hidden="true">
+    <div class="modal-card" tabindex="-1">
       <div class="modal-header">
         <h3 id="modal-title"><span class="modal-header-icon">➕</span> บันทึกธุรกรรมใหม่</h3>
-        <button class="close-btn" id="btn-close-modal">&times;</button>
+        <button class="close-btn" id="btn-close-modal" type="button" aria-label="ปิดหน้าต่าง">&times;</button>
       </div>
       
       <form id="transaction-form">
@@ -235,7 +241,7 @@
         
         <div class="form-group">
           <label for="tx-amount">💵 จำนวนเงิน (บาท)</label>
-          <input type="number" id="tx-amount" min="0.01" step="0.01" placeholder="0.00" required>
+          <input type="number" id="tx-amount" min="0.01" max="999999999.99" step="0.01" placeholder="0.00" required>
         </div>
         
         <div class="form-group">
@@ -250,18 +256,18 @@
         <!-- Conditional Detail Field -->
         <div class="form-group hidden" id="custom-details-group">
           <label for="tx-details-custom">✍️ รายละเอียดเพิ่มเติม (สำหรับ "อื่นๆ")</label>
-          <input type="text" id="tx-details-custom" placeholder="กรอกรายละเอียดเฉพาะ...">
+          <input type="text" id="tx-details-custom" maxlength="250" placeholder="กรอกรายละเอียดเฉพาะ...">
         </div>
         
         <div class="form-group">
           <label for="tx-attachment">🖼️ แนบรูปภาพ</label>
-          <input type="file" id="tx-attachment" accept="image/*">
-          <small class="help-block">ไฟล์จะถูกบันทึกลงโฟลเดอร์ ภาพ และแนบไปกับอีเมลแจ้งเตือน</small>
+          <input type="file" id="tx-attachment" accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif">
+          <small class="help-block">รองรับ JPG, PNG, GIF, WebP, HEIC และ HEIF ขนาดไม่เกิน 5 MB</small>
         </div>
         
         <div class="form-group">
           <label for="tx-password">🔑 รหัสเข้าใช้งาน</label>
-          <input type="password" id="tx-password" placeholder="กรอกรหัสผ่านเพื่อยืนยันรายการ" required>
+          <input type="password" id="tx-password" placeholder="กรอกรหัสผ่านเพื่อยืนยันรายการ" autocomplete="current-password" required>
         </div>
         
         <div class="modal-footer">
@@ -276,14 +282,14 @@
   </div>
   
   <!-- Modal Dialog: Admin Password -->
-  <div class="modal-overlay" id="admin-password-modal">
-    <div class="modal-card admin-modal-card">
+  <div class="modal-overlay" id="admin-password-modal" role="dialog" aria-modal="true" aria-labelledby="admin-modal-title" aria-describedby="admin-modal-message" aria-hidden="true">
+    <div class="modal-card admin-modal-card" tabindex="-1">
       <div class="admin-modal-icon">
         <i data-lucide="shield-check"></i>
       </div>
       <div class="modal-header admin-modal-header">
         <h3 id="admin-modal-title">ยืนยันรหัส Admin</h3>
-        <button class="close-btn" id="btn-close-admin-modal">&times;</button>
+        <button class="close-btn" id="btn-close-admin-modal" type="button" aria-label="ปิดหน้าต่าง">&times;</button>
       </div>
       <p class="admin-modal-subtitle" id="admin-modal-message">กรอกรหัสเพื่อดำเนินการต่อ</p>
       <div class="form-group">
@@ -301,7 +307,7 @@
     </div>
   </div>
     <!-- Floating Toast Notifications -->
-  <div class="toast-container" id="toast-container"></div>
+  <div class="toast-container" id="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
   
   <!-- Core Client-side Logic Script -->
   <script src="app.js"></script>

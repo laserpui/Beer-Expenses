@@ -6,8 +6,10 @@
 const webAppUrl = "https://script.google.com/macros/s/AKfycbw0Ns5NLTiLGu1BY6700VqzUAvYneIJTOZ5GMRSAz3teIgNCm3CRl9P5XfbFF3FsI013g/exec";
 let allTransactions = [];
 let filteredTransactions = [];
-let googleSheetUrl = "";
-const STARTING_BALANCE = 44540.83;
+let startingBalance = 0;
+let currentPage = 1;
+const PAGE_SIZE = 50;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 // Chart Instances
 let monthlyChartInstance = null;
@@ -15,6 +17,7 @@ let balanceChartInstance = null;
 
 // Edit State
 let editingTimestamp = null;
+let lastFocusedElement = null;
 
 // DOM Elements
 const dashboardView = document.getElementById("dashboard-view");
@@ -39,6 +42,10 @@ const kpiWithdrawalsCount = document.getElementById("kpi-withdrawals-count");
 const kpiTxCount = document.getElementById("kpi-tx-count");
 const transactionsTbody = document.getElementById("transactions-tbody");
 const tableCountBadge = document.getElementById("table-count");
+const tablePagination = document.getElementById("table-pagination");
+const pageStatus = document.getElementById("page-status");
+const btnPagePrev = document.getElementById("btn-page-prev");
+const btnPageNext = document.getElementById("btn-page-next");
 
 // Search & Filter
 const searchInput = document.getElementById("search-input");
@@ -84,7 +91,7 @@ let adminPasswordResolver = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   // Initialize Lucide Icons
-  lucide.createIcons();
+  safeCreateIcons();
   
   // Set current date string
   updateDateDisplay();
@@ -103,20 +110,28 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // Mobile toggle sidebar
   mobileToggleBtn.addEventListener("click", () => {
-    sidebar.classList.toggle("mobile-open");
+    const isOpen = sidebar.classList.toggle("mobile-open");
+    mobileToggleBtn.setAttribute("aria-expanded", String(isOpen));
+    mobileToggleBtn.setAttribute("aria-label", isOpen ? "ปิดเมนูหลัก" : "เปิดเมนูหลัก");
   });
   
   // Close sidebar on click item in mobile
   document.querySelectorAll(".menu-item").forEach(item => {
     item.addEventListener("click", () => {
       sidebar.classList.remove("mobile-open");
+      mobileToggleBtn.setAttribute("aria-expanded", "false");
+      mobileToggleBtn.setAttribute("aria-label", "เปิดเมนูหลัก");
     });
   });
   
   // Modal Cancel events
   btnCloseModal.addEventListener("click", closeTransactionModal);
   btnCancelModal.addEventListener("click", closeTransactionModal);
+  transactionModal.addEventListener("click", (event) => {
+    if (event.target === transactionModal) closeTransactionModal();
+  });
   setupAdminPasswordModal();
+  document.addEventListener("keydown", handleGlobalKeydown);
   
   // Modal conditional fields
   txDetailsSelect.addEventListener("change", handleDetailsSelectChange);
@@ -125,8 +140,16 @@ document.addEventListener("DOMContentLoaded", () => {
   transactionForm.addEventListener("submit", handleTransactionSubmit);
   
   // Search and Filter table
-  searchInput.addEventListener("input", filterAndRenderTable);
-  filterType.addEventListener("change", filterAndRenderTable);
+  searchInput.addEventListener("input", () => {
+    currentPage = 1;
+    filterAndRenderTable();
+  });
+  filterType.addEventListener("change", () => {
+    currentPage = 1;
+    filterAndRenderTable();
+  });
+  btnPagePrev.addEventListener("click", () => changePage(-1));
+  btnPageNext.addEventListener("click", () => changePage(1));
   
   // Table Action Buttons (Edit/Delete using Event Delegation)
   transactionsTbody.addEventListener("click", handleTableActions);
@@ -144,6 +167,7 @@ window.addEventListener("pageshow", (event) => {
 function resetTableFilters() {
   searchInput.value = "";
   filterType.value = "all";
+  currentPage = 1;
 }
 
 /**
@@ -155,7 +179,13 @@ function switchView(viewName) {
     dashboardView.classList.add("active");
     viewTitle.textContent = "สรุปภาพรวมบัญชี";
     if (allTransactions.length > 0) {
-      setTimeout(() => renderCharts(allTransactions), 100);
+      setTimeout(() => {
+        try {
+          renderCharts(allTransactions);
+        } catch (error) {
+          console.error("Chart Render Error:", error);
+        }
+      }, 100);
     }
   }
 }
@@ -201,20 +231,14 @@ async function fetchData() {
   showTableLoadingSpinner();
   
   try {
-    const response = await fetch(webAppUrl, {
+    const resData = await fetchJsonWithRetry(webAppUrl, {
       method: "GET",
       redirect: "follow"
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const resData = await response.json();
+    }, { attempts: 3, timeoutMs: 12000 });
     
     if (resData.status === "success") {
       allTransactions = resData.data || [];
-      googleSheetUrl = resData.spreadsheetUrl || googleSheetUrl;
+      startingBalance = Number(resData.startingBalance) || 0;
       
       // Update badge
       updateConnectionStatus(true);
@@ -226,8 +250,13 @@ async function fetchData() {
       filteredTransactions = [...allTransactions];
       filterAndRenderTable();
       
-      // Render visual charts
-      renderCharts(allTransactions);
+      // A chart-library failure must not make valid Sheet data look offline.
+      try {
+        renderCharts(allTransactions);
+      } catch (chartError) {
+        console.error("Chart Render Error:", chartError);
+        showToast("โหลดข้อมูลสำเร็จ แต่ไม่สามารถแสดงกราฟได้", "warning");
+      }
       
     } else {
       throw new Error(resData.message || "Failed to load database records.");
@@ -235,7 +264,7 @@ async function fetchData() {
   } catch (error) {
     console.error("Fetch Data Error:", error);
     updateConnectionStatus(false);
-    showEmptyTableMessage("เกิดข้อผิดพลาดในการดึงข้อมูล โปรดตรวจสอบความถูกต้องของ URL หรือเครือข่าย");
+    showEmptyTableMessage("เกิดข้อผิดพลาดในการดึงข้อมูล โปรดตรวจสอบ URL หรือเครือข่าย", true);
     showToast(`ดึงข้อมูลไม่สำเร็จ: ${error.message}`, "error");
   }
 }
@@ -312,6 +341,8 @@ function filterAndRenderTable() {
     return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
   });
   
+  const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / PAGE_SIZE));
+  currentPage = Math.min(currentPage, totalPages);
   renderTable(filteredTransactions);
 }
 
@@ -322,6 +353,7 @@ function renderTable(txList) {
   tableCountBadge.textContent = `${txList.length} รายการ`;
   
   if (txList.length === 0) {
+    tablePagination.hidden = true;
     transactionsTbody.innerHTML = `
       <tr>
         <td colspan="6" class="text-center py-8 text-muted">ไม่พบข้อมูลรายการธุรกรรม</td>
@@ -329,9 +361,17 @@ function renderTable(txList) {
     `;
     return;
   }
+
+  const totalPages = Math.ceil(txList.length / PAGE_SIZE);
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const pageItems = txList.slice(pageStart, pageStart + PAGE_SIZE);
+  tablePagination.hidden = totalPages <= 1;
+  pageStatus.textContent = `หน้า ${currentPage} จาก ${totalPages}`;
+  btnPagePrev.disabled = currentPage <= 1;
+  btnPageNext.disabled = currentPage >= totalPages;
   
   let html = "";
-  txList.forEach(t => {
+  pageItems.forEach(t => {
     const isDeposit = t.type === "ฝาก";
     const badgeClass = isDeposit ? "deposit" : "withdrawal";
     const amountClass = isDeposit ? "text-deposit font-bold" : "text-withdrawal font-bold";
@@ -350,10 +390,10 @@ function renderTable(txList) {
         <td class="text-center">${renderImageLink(t)}</td>
         <td>
           <div class="action-buttons-wrap">
-            <button class="action-btn edit-btn" data-timestamp="${escapeAttribute(t.timestamp)}" title="แก้ไขรายการ">
+            <button class="action-btn edit-btn" data-timestamp="${escapeAttribute(t.timestamp)}" title="แก้ไขรายการ" aria-label="แก้ไขรายการวันที่ ${escapeAttribute(displayDate)}">
               <i data-lucide="edit-2"></i>
             </button>
-            <button class="action-btn delete-btn" data-timestamp="${escapeAttribute(t.timestamp)}" title="ลบรายการ">
+            <button class="action-btn delete-btn" data-timestamp="${escapeAttribute(t.timestamp)}" title="ลบรายการ" aria-label="ลบรายการวันที่ ${escapeAttribute(displayDate)}">
               <i data-lucide="trash-2"></i>
             </button>
           </div>
@@ -365,13 +405,23 @@ function renderTable(txList) {
   transactionsTbody.innerHTML = html;
   
   // Re-initialize Lucide icons in table
-  lucide.createIcons();
+  safeCreateIcons();
+}
+
+function changePage(direction) {
+  const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / PAGE_SIZE));
+  const nextPage = Math.min(totalPages, Math.max(1, currentPage + direction));
+  if (nextPage === currentPage) return;
+  currentPage = nextPage;
+  renderTable(filteredTransactions);
+  document.querySelector(".table-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 /**
  * Helper to show table spinner
  */
 function showTableLoadingSpinner() {
+  tablePagination.hidden = true;
   transactionsTbody.innerHTML = `
     <tr>
       <td colspan="6" class="text-center py-8 text-muted">
@@ -387,13 +437,15 @@ function showTableLoadingSpinner() {
 /**
  * Helper to show error message inside table
  */
-function showEmptyTableMessage(msg) {
+function showEmptyTableMessage(msg, allowRetry = false) {
+  tablePagination.hidden = true;
   transactionsTbody.innerHTML = `
     <tr>
       <td colspan="6" class="text-center py-8 text-muted">
         <div class="empty-state">
           <span style="font-size: 2.5rem;">⚠️</span>
-          <p class="mt-2 font-bold">${msg}</p>
+          <p class="mt-2 font-bold">${escapeHtml(msg)}</p>
+          ${allowRetry ? '<button type="button" class="btn btn-secondary btn-sm retry-btn mt-2">ลองเชื่อมต่อใหม่</button>' : ""}
         </div>
       </td>
     </tr>
@@ -408,6 +460,9 @@ function showEmptyTableMessage(msg) {
  * Render visual charts: Monthly Deposits vs Withdrawals & Cumulative Balance Trend
  */
 function renderCharts(dataList) {
+  if (typeof Chart === "undefined") {
+    throw new Error("Chart.js is unavailable");
+  }
   // If charts already exist, destroy them before drawing to prevent canvas reuse errors
   if (monthlyChartInstance) monthlyChartInstance.destroy();
   if (balanceChartInstance) balanceChartInstance.destroy();
@@ -499,7 +554,7 @@ function renderCharts(dataList) {
   });
   
   // --- 2. Balance Trend Line Chart Processing ---
-  let runningBalance = STARTING_BALANCE;
+  let runningBalance = startingBalance;
   const balancePoints = [runningBalance];
   const balanceLabels = ["เงินตั้งต้น"];
   
@@ -592,7 +647,7 @@ function drawEmptyCharts() {
     type: "line",
     data: {
       labels: ["เงินตั้งต้น"],
-      datasets: [{ label: "ยอดเงินคงเหลือ", data: [STARTING_BALANCE], borderColor: "rgba(92, 107, 192, 0.3)", tension: 0.1 }]
+      datasets: [{ label: "ยอดเงินคงเหลือ", data: [startingBalance], borderColor: "rgba(92, 107, 192, 0.3)", tension: 0.1 }]
     },
     options: {
       responsive: true,
@@ -610,6 +665,7 @@ function drawEmptyCharts() {
  * Open Modal Form for Add
  */
 function openTransactionModal() {
+  lastFocusedElement = document.activeElement;
   // Clear any existing edit state
   editingTimestamp = null;
   txTimestampInput.value = "";
@@ -632,6 +688,9 @@ function openTransactionModal() {
   
   // Set UI focus and trigger modal layout
   transactionModal.classList.add("active");
+  transactionModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  setTimeout(() => txDateInput.focus(), 50);
 }
 
 /**
@@ -641,6 +700,7 @@ function openEditTransactionModal(timestamp) {
   const transaction = allTransactions.find(t => t.timestamp === timestamp);
   if (!transaction) return;
   
+  lastFocusedElement = document.activeElement;
   editingTimestamp = timestamp;
   txTimestampInput.value = timestamp;
   
@@ -673,6 +733,9 @@ function openEditTransactionModal(timestamp) {
   submitBtnText.textContent = "บันทึกการแก้ไข";
   
   transactionModal.classList.add("active");
+  transactionModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  setTimeout(() => txDateInput.focus(), 50);
 }
 
 /**
@@ -680,7 +743,11 @@ function openEditTransactionModal(timestamp) {
  */
 function closeTransactionModal() {
   transactionModal.classList.remove("active");
+  transactionModal.setAttribute("aria-hidden", "true");
+  if (!adminPasswordModal.classList.contains("active")) document.body.classList.remove("modal-open");
   editingTimestamp = null;
+  document.getElementById("tx-password").value = "";
+  restoreLastFocus();
 }
 
 /**
@@ -704,10 +771,11 @@ function handleDetailsSelectChange() {
 async function handleTransactionSubmit(e) {
   e.preventDefault();
   
-  // Verify passcode
+  // The passcode is verified by Apps Script; never trust a client-side comparison.
   const passwordInput = document.getElementById("tx-password");
-  if (passwordInput.value !== "Admin1234") {
-    showToast("รหัสเข้าใช้งานไม่ถูกต้อง ไม่สามารถทำรายการได้", "error");
+  if (!passwordInput.value) {
+    showToast("กรุณากรอกรหัสเข้าใช้งาน", "warning");
+    passwordInput.focus();
     return;
   }
   
@@ -736,6 +804,11 @@ async function handleTransactionSubmit(e) {
     setFormLoading(false);
     return;
   }
+  if (!details || details.length > 250) {
+    showToast("รายละเอียดต้องมี 1–250 ตัวอักษร", "warning");
+    setFormLoading(false);
+    return;
+  }
   
   // Format numbers to 2 decimals
   const roundedAmount = parseFloat(amount.toFixed(2));
@@ -745,7 +818,9 @@ async function handleTransactionSubmit(e) {
     type: type,
     amount: roundedAmount,
     details: details,
-    user: ""
+    user: "",
+    password: passwordInput.value,
+    requestId: createRequestId()
   };
   
   if (editingTimestamp) {
@@ -762,23 +837,18 @@ async function handleTransactionSubmit(e) {
   try {
     const attachment = await getAttachmentPayload();
     if (attachment) payload.attachment = attachment;
-    const response = await fetch(webAppUrl, {
+    const resData = await fetchJsonWithRetry(webAppUrl, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain"
       },
       body: JSON.stringify(payload),
       redirect: "follow"
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const resData = await response.json();
+    }, { attempts: 2, timeoutMs: 20000 });
     
     if (resData.status === "success") {
       showToast(resData.message || "บันทึกรายการเรียบร้อยแล้ว", "success");
+      if (resData.warning) showToast(resData.warning, "warning");
       closeTransactionModal();
       // Fetch fresh data
       fetchData();
@@ -799,6 +869,11 @@ async function handleTransactionSubmit(e) {
  * Handle Edit/Delete Actions via Event Delegation
  */
 async function handleTableActions(e) {
+  const retryBtn = e.target.closest(".retry-btn");
+  if (retryBtn) {
+    fetchData();
+    return;
+  }
   // Find action button clicked
   const editBtn = e.target.closest(".edit-btn");
   const deleteBtn = e.target.closest(".delete-btn");
@@ -814,11 +889,11 @@ async function handleTableActions(e) {
     if (!matchedTx) return;
     
     // Verify passcode
-    const isAuthorized = await requestAdminPassword({
+    const password = await requestAdminPassword({
       title: "ยืนยันการลบรายการ",
       message: "กรอกรหัส Admin เพื่อลบรายการนี้"
     });
-    if (!isAuthorized) return;
+    if (!password) return;
     
     const displayDate = formatThaiDate(matchedTx.date);
     const confirmMessage = `คุณแน่ใจหรือไม่ว่าต้องการลบรายการนี้?\n\n` +
@@ -828,7 +903,7 @@ async function handleTableActions(e) {
                            `📝 รายละเอียด: ${matchedTx.details}`;
     
     if (confirm(confirmMessage)) {
-      await executeDelete(timestamp);
+      await executeDelete(timestamp, password);
     }
   }
 }
@@ -836,32 +911,29 @@ async function handleTableActions(e) {
 /**
  * Send DELETE request to API
  */
-async function executeDelete(timestamp) {
+async function executeDelete(timestamp, password) {
   if (!webAppUrl) return;
   
   showToast("กำลังส่งคำขอลบรายการ...", "info");
   
   try {
-    const response = await fetch(webAppUrl, {
+    const resData = await fetchJsonWithRetry(webAppUrl, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain"
       },
       body: JSON.stringify({
         action: "delete",
-        timestamp: timestamp
+        timestamp: timestamp,
+        password: password,
+        requestId: createRequestId()
       }),
       redirect: "follow"
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const resData = await response.json();
+    }, { attempts: 2, timeoutMs: 20000 });
     
     if (resData.status === "success") {
       showToast(resData.message || "ลบรายการเรียบร้อยแล้ว", "success");
+      if (resData.warning) showToast(resData.warning, "warning");
       fetchData(); // Refresh
     } else {
       throw new Error(resData.message || "ลบข้อมูลล้มเหลว");
@@ -917,16 +989,19 @@ function setupAdminPasswordModal() {
 function requestAdminPassword({ title, message }) {
   if (!adminPasswordModal) {
     showToast("ไม่พบหน้าต่างยืนยันรหัส Admin", "error");
-    return Promise.resolve(false);
+    return Promise.resolve(null);
   }
-  if (adminPasswordResolver) resolveAdminPassword(false);
+  if (adminPasswordResolver) resolveAdminPassword(null);
+  lastFocusedElement = document.activeElement;
   adminModalTitle.textContent = title || "ยืนยันรหัส Admin";
   adminModalMessage.textContent = message || "กรอกรหัสเพื่อดำเนินการต่อ";
   adminPasswordInput.value = "";
   adminPasswordError.classList.add("hidden");
   adminPasswordModal.classList.add("active");
+  adminPasswordModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
   setTimeout(() => adminPasswordInput.focus(), 80);
-  lucide.createIcons();
+  safeCreateIcons();
 
   return new Promise((resolve) => {
     adminPasswordResolver = resolve;
@@ -934,10 +1009,12 @@ function requestAdminPassword({ title, message }) {
 }
 
 function submitAdminPassword() {
-  if (adminPasswordInput.value === "Admin1234") {
-    resolveAdminPassword(true);
+  const password = adminPasswordInput.value;
+  if (password) {
+    resolveAdminPassword(password);
     return;
   }
+  adminPasswordError.textContent = "กรุณากรอกรหัส Admin";
   adminPasswordError.classList.remove("hidden");
   adminPasswordInput.select();
 }
@@ -947,28 +1024,32 @@ function resolveAdminPassword(result) {
   const resolver = adminPasswordResolver;
   adminPasswordResolver = null;
   adminPasswordModal.classList.remove("active");
+  adminPasswordModal.setAttribute("aria-hidden", "true");
+  if (!transactionModal.classList.contains("active")) document.body.classList.remove("modal-open");
+  adminPasswordInput.value = "";
   resolver(result);
+  restoreLastFocus();
 }
 function renderImageLink(transaction) {
   if (!transaction.imageUrl) return "-";
   const title = transaction.imageName || "เปิดรูปภาพ";
   return `
-    <a class="image-link" href="${escapeAttribute(transaction.imageUrl)}" target="_blank" rel="noopener" title="${escapeAttribute(title)}">
+    <a class="image-link" href="${escapeAttribute(transaction.imageUrl)}" target="_blank" rel="noopener" title="${escapeAttribute(title)}" aria-label="${escapeAttribute(title)}">
       <i data-lucide="image"></i>
     </a>
   `;
 }
 
 async function handleOpenSheetClick() {
-  const isAuthorized = await requestAdminPassword({
+  const password = await requestAdminPassword({
     title: "เปิด Google Sheet",
     message: "กรอกรหัส Admin เพื่อเปิดไฟล์ Google Sheet"
   });
-  if (!isAuthorized) return;
+  if (!password) return;
 
   const sheetWindow = window.open("about:blank", "_blank");
   try {
-    const sheetUrl = await resolveGoogleSheetUrl();
+    const sheetUrl = await resolveGoogleSheetUrl(password);
     if (!sheetUrl) {
       if (sheetWindow) sheetWindow.close();
       showToast("ยังไม่พบลิงก์ Google Sheet กรุณาตรวจสอบว่า Apps Script อัปเดตเป็นเวอร์ชันล่าสุดแล้ว", "warning");
@@ -986,22 +1067,15 @@ async function handleOpenSheetClick() {
   }
 }
 
-async function resolveGoogleSheetUrl() {
-  if (googleSheetUrl) return googleSheetUrl;
-  const separator = webAppUrl.includes("?") ? "&" : "?";
-  const response = await fetch(`${webAppUrl}${separator}action=sheetUrl&t=${Date.now()}`, {
-    method: "GET",
+async function resolveGoogleSheetUrl(password) {
+  const data = await fetchJsonWithRetry(webAppUrl, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ action: "sheetUrl", password, requestId: createRequestId() }),
     redirect: "follow"
-  });
-  if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
-  }
-  const data = await response.json();
-  if (data.status === "success" && data.spreadsheetUrl) {
-    googleSheetUrl = data.spreadsheetUrl;
-    return googleSheetUrl;
-  }
-  return "";
+  }, { attempts: 2, timeoutMs: 15000 });
+  if (data.status !== "success") throw new Error(data.message || "ไม่สามารถยืนยันสิทธิ์ได้");
+  return data.spreadsheetUrl || "";
 }
 
 async function getAttachmentPayload() {
@@ -1011,6 +1085,9 @@ async function getAttachmentPayload() {
   const file = txAttachmentInput.files[0];
   if (!file.type || !file.type.startsWith("image/")) {
     throw new Error("กรุณาแนบไฟล์รูปภาพเท่านั้น");
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    throw new Error("ไฟล์รูปภาพต้องมีขนาดไม่เกิน 5 MB");
   }
   const dataUrl = await readFileAsDataUrl(file);
   return {
@@ -1044,6 +1121,85 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function createRequestId() {
+  if (window.crypto && typeof window.crypto.randomUUID === "function") {
+    return window.crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function fetchJsonWithRetry(url, options = {}, { attempts = 3, timeoutMs = 12000 } = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      if (!response.ok) {
+        const error = new Error(`HTTP error! status: ${response.status}`);
+        error.retryable = response.status >= 500;
+        throw error;
+      }
+      return await response.json();
+    } catch (error) {
+      lastError = error.name === "AbortError" ? new Error("หมดเวลารอการตอบกลับจากเซิร์ฟเวอร์") : error;
+      const retryable = error.name === "AbortError" || error instanceof TypeError || error.retryable;
+      if (!retryable || attempt === attempts) break;
+      await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastError;
+}
+
+function safeCreateIcons() {
+  if (window.lucide && typeof window.lucide.createIcons === "function") {
+    window.lucide.createIcons();
+  }
+}
+
+function handleGlobalKeydown(event) {
+  const activeModal = adminPasswordModal.classList.contains("active")
+    ? adminPasswordModal
+    : transactionModal.classList.contains("active")
+      ? transactionModal
+      : null;
+  if (!activeModal) return;
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    if (activeModal === adminPasswordModal) resolveAdminPassword(null);
+    else if (!btnSubmitModal.disabled) closeTransactionModal();
+    return;
+  }
+
+  if (event.key === "Tab") trapFocus(event, activeModal);
+}
+
+function trapFocus(event, modal) {
+  const focusable = [...modal.querySelectorAll(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+  )].filter(element => element.offsetParent !== null);
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function restoreLastFocus() {
+  if (lastFocusedElement && document.contains(lastFocusedElement)) {
+    lastFocusedElement.focus();
+  }
+  lastFocusedElement = null;
 }
 /* ==========================================================================
    Helper Utilities
@@ -1149,7 +1305,7 @@ function showToast(message, type = "info") {
   toast.append(icon, messageElement);
   
   toastContainer.appendChild(toast);
-  lucide.createIcons();
+  safeCreateIcons();
   
   // Trigger slide and fade out
   setTimeout(() => {
