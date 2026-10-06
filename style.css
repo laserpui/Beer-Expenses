@@ -497,6 +497,16 @@ body.modal-open {
   box-shadow: 0 0 0 3px var(--primary-light);
 }
 
+@keyframes search-autofill-start {
+  from { opacity: 0.999; }
+  to { opacity: 1; }
+}
+
+#search-input:-webkit-autofill {
+  animation-name: search-autofill-start;
+  animation-duration: 0.01s;
+}
+
 .table-actions select {
   padding: 0.55rem 1.5rem 0.55rem 1rem;
   border-radius: var(--rounded-input);

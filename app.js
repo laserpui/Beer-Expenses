@@ -8,6 +8,8 @@ let allTransactions = [];
 let filteredTransactions = [];
 let startingBalance = 0;
 let currentPage = 1;
+let searchUserEditing = false;
+let searchAutofillTimers = [];
 const PAGE_SIZE = 50;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -97,7 +99,9 @@ document.addEventListener("DOMContentLoaded", () => {
   updateDateDisplay();
 
   // Do not restore a previous search/filter value when the browser reloads the page.
+  armSearchAutofillGuard();
   resetTableFilters();
+  scheduleSearchAutofillSweeps();
   
   // Fetch initial data
   fetchData();
@@ -158,16 +162,83 @@ document.addEventListener("DOMContentLoaded", () => {
 // Browsers can restore form controls after DOMContentLoaded when returning from
 // the back-forward cache. Clear the dashboard filters again in that case.
 window.addEventListener("pageshow", (event) => {
-  if (event.persisted) {
-    resetTableFilters();
-    filterAndRenderTable();
-  }
+  resetTableFilters();
+  scheduleSearchAutofillSweeps();
+  if (event.persisted) filterAndRenderTable();
 });
 
+window.addEventListener("load", scheduleSearchAutofillSweeps);
+
 function resetTableFilters() {
+  searchUserEditing = false;
+  searchInput.readOnly = true;
   searchInput.value = "";
   filterType.value = "all";
   currentPage = 1;
+}
+
+function armSearchAutofillGuard() {
+  searchInput.addEventListener("pointerdown", () => {
+    clearUnexpectedSearchValue();
+    searchInput.readOnly = false;
+  });
+
+  searchInput.addEventListener("keydown", (event) => {
+    searchInput.readOnly = false;
+    if (!event.ctrlKey && !event.metaKey && !event.altKey &&
+        (event.key.length === 1 || event.key === "Backspace" || event.key === "Delete")) {
+      searchUserEditing = true;
+    }
+  });
+
+  searchInput.addEventListener("paste", () => {
+    searchUserEditing = true;
+    searchInput.readOnly = false;
+  });
+
+  searchInput.addEventListener("compositionstart", () => {
+    searchUserEditing = true;
+    searchInput.readOnly = false;
+  });
+
+  searchInput.addEventListener("beforeinput", (event) => {
+    if (event.inputType === "insertReplacementText" && !searchUserEditing) {
+      event.preventDefault();
+      queueMicrotask(clearUnexpectedSearchValue);
+      return;
+    }
+  });
+
+  searchInput.addEventListener("input", () => {
+    if (!searchUserEditing) clearUnexpectedSearchValue();
+  });
+
+  searchInput.addEventListener("focus", () => {
+    clearUnexpectedSearchValue();
+    scheduleSearchAutofillSweeps([0, 60, 250, 800, 1500]);
+  });
+
+  searchInput.addEventListener("blur", () => {
+    searchInput.readOnly = true;
+  });
+
+  searchInput.addEventListener("animationstart", (event) => {
+    if (event.animationName === "search-autofill-start" && !searchUserEditing) {
+      clearUnexpectedSearchValue();
+    }
+  });
+}
+
+function scheduleSearchAutofillSweeps(delays = [0, 60, 250, 800, 1500, 3000]) {
+  searchAutofillTimers.forEach(timer => clearTimeout(timer));
+  searchAutofillTimers = delays.map(delay => setTimeout(clearUnexpectedSearchValue, delay));
+}
+
+function clearUnexpectedSearchValue() {
+  if (searchUserEditing || !searchInput.value) return;
+  searchInput.value = "";
+  currentPage = 1;
+  if (allTransactions.length > 0) filterAndRenderTable();
 }
 
 /**
