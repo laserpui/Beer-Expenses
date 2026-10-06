@@ -88,6 +88,9 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // Set current date string
   updateDateDisplay();
+
+  // Do not restore a previous search/filter value when the browser reloads the page.
+  resetTableFilters();
   
   // Fetch initial data
   fetchData();
@@ -128,6 +131,20 @@ document.addEventListener("DOMContentLoaded", () => {
   // Table Action Buttons (Edit/Delete using Event Delegation)
   transactionsTbody.addEventListener("click", handleTableActions);
 });
+
+// Browsers can restore form controls after DOMContentLoaded when returning from
+// the back-forward cache. Clear the dashboard filters again in that case.
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) {
+    resetTableFilters();
+    filterAndRenderTable();
+  }
+});
+
+function resetTableFilters() {
+  searchInput.value = "";
+  filterType.value = "all";
+}
 
 /**
  * Switch between Views
@@ -265,9 +282,9 @@ function filterAndRenderTable() {
   
   filteredTransactions = allTransactions.filter(t => {
     // 1. Search Query matches Details, User, or Amount
-    const detailsMatch = t.details.toLowerCase().includes(query);
-    const userMatch = t.user.toLowerCase().includes(query);
-    const amountMatch = t.amount.toString().includes(query);
+    const detailsMatch = String(t.details || "").toLowerCase().includes(query);
+    const userMatch = String(t.user || "").toLowerCase().includes(query);
+    const amountMatch = String(t.amount ?? "").includes(query);
     const datePartsMatch = formatThaiDate(t.date).includes(query);
     
     const searchMatch = detailsMatch || userMatch || amountMatch || datePartsMatch;
@@ -322,21 +339,21 @@ function renderTable(txList) {
     
     html += `
       <tr>
-        <td>${displayDate}</td>
+        <td>${escapeHtml(displayDate)}</td>
         <td>
           <span class="type-badge ${badgeClass}">
             ${isDeposit ? "➕ ฝาก" : "➖ ถอน"}
           </span>
         </td>
         <td class="${amountClass} text-right">${formatCurrency(t.amount)}</td>
-        <td>${t.details}</td>
+        <td>${escapeHtml(t.details)}</td>
         <td class="text-center">${renderImageLink(t)}</td>
         <td>
           <div class="action-buttons-wrap">
-            <button class="action-btn edit-btn" data-timestamp="${t.timestamp}" title="แก้ไขรายการ">
+            <button class="action-btn edit-btn" data-timestamp="${escapeAttribute(t.timestamp)}" title="แก้ไขรายการ">
               <i data-lucide="edit-2"></i>
             </button>
-            <button class="action-btn delete-btn" data-timestamp="${t.timestamp}" title="ลบรายการ">
+            <button class="action-btn delete-btn" data-timestamp="${escapeAttribute(t.timestamp)}" title="ลบรายการ">
               <i data-lucide="trash-2"></i>
             </button>
           </div>
@@ -1019,6 +1036,15 @@ function escapeAttribute(value) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 /* ==========================================================================
    Helper Utilities
    ========================================================================== */
@@ -1115,10 +1141,12 @@ function showToast(message, type = "info") {
   if (type === "error") iconName = "alert-triangle";
   if (type === "warning") iconName = "alert-circle";
   
-  toast.innerHTML = `
-    <i data-lucide="${iconName}"></i>
-    <div class="toast-message">${message}</div>
-  `;
+  const icon = document.createElement("i");
+  icon.setAttribute("data-lucide", iconName);
+  const messageElement = document.createElement("div");
+  messageElement.className = "toast-message";
+  messageElement.textContent = String(message ?? "");
+  toast.append(icon, messageElement);
   
   toastContainer.appendChild(toast);
   lucide.createIcons();
